@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8" />
-  <title>マインクラフト画像変換ツール</title>
+  <meta charset="UTF-8">
+  <title>画像置き換えツール - マインクラフト風</title>
   <style>
     body {
       margin: 0;
@@ -13,22 +13,17 @@
     }
     h2 {
       margin-top: 32px;
-      margin-bottom: 8px;
     }
     .settings {
-      font-size: 14px;
       margin-bottom: 12px;
     }
     input[type="number"] {
       width: 50px;
       margin: 0 6px;
-      border-radius: 4px;
-      border: none;
       padding: 4px;
       text-align: center;
     }
     .drop-zone, .folder-select {
-      width: 100%;
       max-width: 500px;
       border: 2px dashed #888;
       border-radius: 12px;
@@ -37,22 +32,17 @@
       text-align: center;
       cursor: pointer;
       margin-bottom: 16px;
-      user-select: none;
     }
     .image-list {
-      width: 100%;
       max-width: 500px;
       height: 200px;
       overflow-y: auto;
-      font-size: 14px;
-      color: #ccc;
       border: 1px solid #555;
       border-radius: 6px;
       padding: 8px;
-      box-sizing: border-box;
+      font-size: 14px;
     }
     #zipButton {
-      margin-top: 10px;
       padding: 6px 12px;
       background-color: #444;
       color: #fff;
@@ -64,9 +54,7 @@
       font-size: 13px;
       margin-top: 10px;
       max-width: 500px;
-      text-align: left;
       white-space: pre-wrap;
-      color: #ccc;
     }
   </style>
 </head>
@@ -79,11 +67,11 @@
     <input id="heightInput" type="number" min="1" value="16">
   </div>
   <div id="leftDrop" class="drop-zone">PNG画像をドロップ（指定サイズ）</div>
-  <div id="leftList" class="image-list">読み込んだ平均色が表示されます</div>
+  <div id="leftList" class="image-list"></div>
 
   <h2>反映する画像フォルダを選択</h2>
   <label class="folder-select">
-    フォルダを選択（PNGのみ・サブフォルダ可）
+    PNG画像を含むフォルダを選択（サブフォルダ可）
     <input type="file" id="folderInput" webkitdirectory multiple style="display:none">
   </label>
   <button id="zipButton">ZIPで保存</button>
@@ -101,39 +89,37 @@
 
     let colorDict = [];
 
-    function getAverageColor(img) {
+    function getAverageColor(img, w, h) {
       const canvas = document.createElement("canvas");
-      canvas.width = img.width;
-      canvas.height = img.height;
+      canvas.width = w;
+      canvas.height = h;
       const ctx = canvas.getContext("2d");
-      ctx.drawImage(img, 0, 0);
-      const data = ctx.getImageData(0, 0, img.width, img.height).data;
+      ctx.drawImage(img, 0, 0, w, h);
+      const data = ctx.getImageData(0, 0, w, h).data;
       let r = 0, g = 0, b = 0, count = 0;
       for (let i = 0; i < data.length; i += 4) {
         if (data[i + 3] > 0) {
-          r += data[i]; g += data[i + 1]; b += data[i + 2]; count++;
+          r += data[i];
+          g += data[i + 1];
+          b += data[i + 2];
+          count++;
         }
       }
-      return count ? {
-        r: Math.round(r / count),
-        g: Math.round(g / count),
-        b: Math.round(b / count)
-      } : { r: 0, g: 0, b: 0 };
+      return count ? { r: r / count, g: g / count, b: b / count } : { r: 0, g: 0, b: 0 };
     }
 
     function colorDistance(c1, c2) {
       return Math.sqrt((c1.r - c2.r) ** 2 + (c1.g - c2.g) ** 2 + (c1.b - c2.b) ** 2);
     }
 
-    function findNearestColor(c) {
-      if (!colorDict.length) return c;
+    function findNearestImage(c) {
       return colorDict.reduce((prev, curr) =>
-        colorDistance(c, curr) < colorDistance(c, prev) ? curr : prev
+        colorDistance(c, curr.avg) < colorDistance(c, prev.avg) ? curr : prev
       );
     }
 
     // 色辞書ドロップ処理
-    leftDrop.addEventListener("dragover", e => { e.preventDefault(); });
+    leftDrop.addEventListener("dragover", e => e.preventDefault());
     leftDrop.addEventListener("drop", e => {
       e.preventDefault();
       const w = parseInt(widthInput.value);
@@ -143,65 +129,67 @@
         const img = new Image();
         img.onload = () => {
           if (img.width !== w || img.height !== h) return;
-          const avg = getAverageColor(img);
-          colorDict.push(avg);
+          const avg = getAverageColor(img, w, h);
+          colorDict.push({ img, avg });
           const div = document.createElement("div");
-          div.textContent = `${file.name}: rgb(${avg.r},${avg.g},${avg.b})`;
+          div.textContent = `${file.name}: rgb(${avg.r|0}, ${avg.g|0}, ${avg.b|0})`;
           leftList.appendChild(div);
         };
         img.src = URL.createObjectURL(file);
       }
     });
 
-    // フォルダ選択 → 変換 → ZIP保存
+    // フォルダ選択と変換
     folderInput.addEventListener("change", async () => {
       const files = [...folderInput.files].filter(f => f.name.endsWith(".png"));
       const zip = new JSZip();
-      const scale = parseInt(widthInput.value);
+      const tileW = parseInt(widthInput.value);
+      const tileH = parseInt(heightInput.value);
 
       log.textContent = "変換中...\n";
 
       for (const file of files) {
-        const path = file.webkitRelativePath.replace(/^.*?\//, ""); // ルートフォルダ削除
+        const path = file.webkitRelativePath.replace(/^.*?\//, "");
         const img = new Image();
         const blobURL = URL.createObjectURL(file);
 
         await new Promise((resolve, reject) => {
           img.onload = () => {
             const iw = img.width, ih = img.height;
-            const ow = iw * scale, oh = ih * scale;
-
-            const temp = document.createElement("canvas");
-            temp.width = iw; temp.height = ih;
-            const tempCtx = temp.getContext("2d");
-            tempCtx.drawImage(img, 0, 0);
-            const srcData = tempCtx.getImageData(0, 0, iw, ih).data;
-
             const outCanvas = document.createElement("canvas");
-            outCanvas.width = ow;
-            outCanvas.height = oh;
+            outCanvas.width = iw * tileW;
+            outCanvas.height = ih * tileH;
             const ctx = outCanvas.getContext("2d");
-            const outData = ctx.createImageData(ow, oh);
+
+            const tempCanvas = document.createElement("canvas");
+            tempCanvas.width = iw;
+            tempCanvas.height = ih;
+            const tctx = tempCanvas.getContext("2d");
+            tctx.drawImage(img, 0, 0);
+            const data = tctx.getImageData(0, 0, iw, ih).data;
 
             for (let y = 0; y < ih; y++) {
               for (let x = 0; x < iw; x++) {
                 const i = (y * iw + x) * 4;
-                const r = srcData[i], g = srcData[i+1], b = srcData[i+2], a = srcData[i+3];
-                const nearest = a === 0 ? {r:0,g:0,b:0} : findNearestColor({r,g,b});
-                for (let sy = 0; sy < scale; sy++) {
-                  for (let sx = 0; sx < scale; sx++) {
-                    const ox = x * scale + sx, oy = y * scale + sy;
-                    const o = (oy * ow + ox) * 4;
-                    outData.data[o] = nearest.r;
-                    outData.data[o+1] = nearest.g;
-                    outData.data[o+2] = nearest.b;
-                    outData.data[o+3] = a;
-                  }
+                const r = data[i], g = data[i+1], b = data[i+2], a = data[i+3];
+                if (a === 0) continue; // 完全透明はスキップ
+
+                const nearest = findNearestImage({r, g, b});
+
+                // 一度通常描画
+                ctx.globalAlpha = 1.0;
+                ctx.drawImage(nearest.img, x * tileW, y * tileH, tileW, tileH);
+
+                // 半透明なら、上から透明度付きで再描画
+                if (a < 255) {
+                  ctx.globalAlpha = a / 255;
+                  ctx.drawImage(nearest.img, x * tileW, y * tileH, tileW, tileH);
                 }
               }
             }
 
-            ctx.putImageData(outData, 0, 0);
+            ctx.globalAlpha = 1.0;
+
             outCanvas.toBlob(blob => {
               zip.file(path, blob);
               log.textContent += `✔ ${path}\n`;
@@ -213,7 +201,6 @@
         });
       }
 
-      // ZIP出力
       zip.generateAsync({ type: "blob" }).then(blob => {
         const a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
