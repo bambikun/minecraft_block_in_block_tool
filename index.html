@@ -2,17 +2,15 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
-  <title>マイクラ用画像変換ツール（ZIPダウンロード対応）</title>
+  <title>マインクラフト画像変換ツール（フォルダ読み込み対応）</title>
   <style>
     body {
       margin: 0; padding: 0;
-      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      font-family: "Segoe UI", sans-serif;
       background-color: #1e1e1e;
       color: white;
       display: flex;
       height: 100vh;
-      overflow: hidden;
-      user-select: none;
     }
     .container {
       flex: 1;
@@ -23,50 +21,36 @@
       padding: 16px;
       box-sizing: border-box;
     }
-    .container:last-child {
-      border-right: none;
-    }
-    h2 {
-      margin: 0 0 8px 0;
-      font-weight: 600;
-    }
+    .container:last-child { border-right: none; }
+    h2 { margin: 0 0 8px; }
     .settings {
       font-size: 14px;
       margin-bottom: 6px;
     }
     input[type="number"] {
       width: 50px;
-      padding: 4px;
       margin: 0 6px;
       border-radius: 4px;
       border: none;
+      padding: 4px;
       text-align: center;
     }
-    .drop-zone {
-      flex-grow: 1;
+    .drop-zone, .folder-select {
       width: 100%;
       max-width: 400px;
       border: 2px dashed #888;
       border-radius: 12px;
       background-color: #2c2c2c;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      text-align: center;
       padding: 20px;
-      font-size: 16px;
+      text-align: center;
       cursor: pointer;
-      transition: background-color 0.2s;
-      user-select:none;
-    }
-    .drop-zone.dragover {
-      background-color: #444;
+      margin-bottom: 12px;
+      user-select: none;
     }
     .image-list {
-      margin-top: 12px;
       width: 100%;
       max-width: 400px;
-      max-height: 200px;
+      height: 200px;
       overflow-y: auto;
       font-size: 14px;
       color: #ccc;
@@ -74,72 +58,61 @@
       border-radius: 6px;
       padding: 8px;
       box-sizing: border-box;
-      user-select:none;
-    }
-    canvas {
-      margin-top: 8px;
-      border: 1px solid #666;
-      max-width: 100%;
-      image-rendering: pixelated;
-      user-select:none;
-    }
-    #downloadLink, #zipButton {
-      margin-top: 12px;
-      color: #66f;
-      cursor: pointer;
-      user-select: none;
-      text-decoration: underline;
-      display: inline-block;
     }
     #zipButton {
-      margin-left: 16px;
-    }
-    .right-result {
-      margin-top: 8px;
-      border: 1px solid #555;
-      padding: 6px;
+      margin-top: 10px;
+      padding: 6px 12px;
+      background-color: #444;
+      color: #fff;
+      border: 1px solid #888;
       border-radius: 6px;
-      background-color: #222;
-      width: 400px;
-      user-select:none;
+      cursor: pointer;
+    }
+    .log {
+      font-size: 13px;
+      margin-top: 10px;
+      max-width: 400px;
+      text-align: left;
+      white-space: pre-wrap;
+      color: #ccc;
     }
   </style>
 </head>
 <body>
-  <!-- 左側 -->
+  <!-- 色辞書側 -->
   <div class="container">
     <h2>色辞書用画像をドラッグアンドドロップ</h2>
     <div class="settings">
       サイズ制限: 
-      <input id="widthInput" type="number" min="1" value="16" title="幅(ピクセル)">
-      ×
-      <input id="heightInput" type="number" min="1" value="16" title="高さ(ピクセル)">
+      <input id="widthInput" type="number" min="1" value="16">×
+      <input id="heightInput" type="number" min="1" value="16">
     </div>
-    <div id="leftDrop" class="drop-zone">ここにPNG画像をドロップ<br>指定サイズの画像のみ受け付けます</div>
-    <div id="leftList" class="image-list">ここに読み込んだ色辞書画像の平均色一覧が表示されます</div>
+    <div id="leftDrop" class="drop-zone">PNG画像をドロップ（指定サイズ）</div>
+    <div id="leftList" class="image-list">読み込んだ平均色が表示されます</div>
   </div>
 
-  <!-- 右側 -->
+  <!-- 変換対象側 -->
   <div class="container">
-    <h2>反映する画像をドラッグアンドドロップ（複数可）</h2>
-    <div id="rightDrop" class="drop-zone">ここにPNG画像をドロップ</div>
-    <div id="rightResults"></div>
-    <button id="zipButton" title="すべての変換画像をZIPで一括ダウンロード">まとめてZIPダウンロード</button>
+    <h2>反映する画像フォルダを選択</h2>
+    <label class="folder-select">
+      画像フォルダを選択（PNGのみ・サブフォルダ可）
+      <input type="file" id="folderInput" webkitdirectory multiple style="display:none">
+    </label>
+    <button id="zipButton">ZIPで保存</button>
+    <div class="log" id="log"></div>
   </div>
 
-  <!-- JSZip CDN -->
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <script>
     const widthInput = document.getElementById("widthInput");
     const heightInput = document.getElementById("heightInput");
     const leftDrop = document.getElementById("leftDrop");
-    const rightDrop = document.getElementById("rightDrop");
     const leftList = document.getElementById("leftList");
-    const rightResults = document.getElementById("rightResults");
+    const folderInput = document.getElementById("folderInput");
     const zipButton = document.getElementById("zipButton");
+    const log = document.getElementById("log");
 
-    let colorDict = []; // {r, g, b, label}
-    let convertedImages = []; // {name, blob}
+    let colorDict = [];
 
     function getAverageColor(img) {
       const canvas = document.createElement("canvas");
@@ -149,218 +122,121 @@
       ctx.drawImage(img, 0, 0);
       const data = ctx.getImageData(0, 0, img.width, img.height).data;
       let r = 0, g = 0, b = 0, count = 0;
-      for(let i = 0; i < data.length; i += 4) {
-        if(data[i+3] > 0){
-          r += data[i];
-          g += data[i+1];
-          b += data[i+2];
-          count++;
+      for (let i = 0; i < data.length; i += 4) {
+        if (data[i + 3] > 0) {
+          r += data[i]; g += data[i + 1]; b += data[i + 2]; count++;
         }
       }
-      if(count === 0) return {r:0,g:0,b:0};
-      return {
-        r: Math.round(r/count),
-        g: Math.round(g/count),
-        b: Math.round(b/count)
-      };
+      return count ? {
+        r: Math.round(r / count),
+        g: Math.round(g / count),
+        b: Math.round(b / count)
+      } : { r: 0, g: 0, b: 0 };
     }
 
-    function colorDistance(c1, c2){
-      return Math.sqrt(
-        (c1.r - c2.r)**2 +
-        (c1.g - c2.g)**2 +
-        (c1.b - c2.b)**2
-      );
+    function colorDistance(c1, c2) {
+      return Math.sqrt((c1.r - c2.r) ** 2 + (c1.g - c2.g) ** 2 + (c1.b - c2.b) ** 2);
     }
 
     function findNearestColor(c) {
-      if(colorDict.length === 0) return c;
-      let nearest = colorDict[0];
-      let minDist = colorDistance(c, nearest);
-      for(let i=1; i<colorDict.length; i++) {
-        let dist = colorDistance(c, colorDict[i]);
-        if(dist < minDist){
-          minDist = dist;
-          nearest = colorDict[i];
-        }
-      }
-      return nearest;
+      if (!colorDict.length) return c;
+      return colorDict.reduce((prev, curr) =>
+        colorDistance(c, curr) < colorDistance(c, prev) ? curr : prev
+      );
     }
 
-    function handleLeftDrop(files){
+    // 色辞書ドロップ処理
+    leftDrop.addEventListener("dragover", e => { e.preventDefault(); });
+    leftDrop.addEventListener("drop", e => {
+      e.preventDefault();
       const w = parseInt(widthInput.value);
       const h = parseInt(heightInput.value);
-      [...files].forEach(file => {
-        if(!file.type.endsWith("png")) return;
+      for (const file of e.dataTransfer.files) {
+        if (!file.name.endsWith(".png")) continue;
         const img = new Image();
         img.onload = () => {
-          if(img.width !== w || img.height !== h){
-            alert(`ファイル"${file.name}"はサイズが${w}x${h}ではありません。除外します。`);
-            return;
-          }
+          if (img.width !== w || img.height !== h) return;
           const avg = getAverageColor(img);
           colorDict.push(avg);
-          const label = `${file.name}: rgb(${avg.r}, ${avg.g}, ${avg.b})`;
           const div = document.createElement("div");
-          div.textContent = label;
+          div.textContent = `${file.name}: rgb(${avg.r},${avg.g},${avg.b})`;
           leftList.appendChild(div);
         };
-        img.onerror = () => {
-          alert(`"${file.name}"を読み込めませんでした。`);
-        }
         img.src = URL.createObjectURL(file);
-      });
-    }
+      }
+    });
 
-    // 右側画像を変換してキャンバス表示しblobも保存
-    function handleRightDrop(files){
-      const w = parseInt(widthInput.value);
-      const h = parseInt(heightInput.value);
-      [...files].forEach(file => {
-        if(!file.type.endsWith("png")) return;
+    // 右側の画像フォルダ読み込み＆変換
+    folderInput.addEventListener("change", async () => {
+      const files = [...folderInput.files].filter(f => f.name.endsWith(".png"));
+      const zip = new JSZip();
+      const scale = parseInt(widthInput.value);
+
+      log.textContent = "変換中...\n";
+
+      for (const file of files) {
+        const path = file.webkitRelativePath.replace(/^.*?\//, ""); // フォルダ名以降のみ残す
         const img = new Image();
-        img.onload = () => {
-          const scale = w;
-          const iw = img.width;
-          const ih = img.height;
-          const outW = iw * scale;
-          const outH = ih * scale;
+        const blobURL = URL.createObjectURL(file);
 
-          // 変換用キャンバスを作成
-          const canvas = document.createElement("canvas");
-          canvas.width = outW;
-          canvas.height = outH;
-          const ctx = canvas.getContext("2d");
+        await new Promise((resolve, reject) => {
+          img.onload = () => {
+            const iw = img.width, ih = img.height;
+            const ow = iw * scale, oh = ih * scale;
 
-          // 元画像のピクセル取得
-          const tempCanvas = document.createElement("canvas");
-          tempCanvas.width = iw;
-          tempCanvas.height = ih;
-          const tempCtx = tempCanvas.getContext("2d");
-          tempCtx.drawImage(img, 0, 0);
-          const imgData = tempCtx.getImageData(0, 0, iw, ih);
+            const temp = document.createElement("canvas");
+            temp.width = iw; temp.height = ih;
+            const tempCtx = temp.getContext("2d");
+            tempCtx.drawImage(img, 0, 0);
+            const srcData = tempCtx.getImageData(0, 0, iw, ih).data;
 
-          const outImgData = ctx.createImageData(outW, outH);
+            const outCanvas = document.createElement("canvas");
+            outCanvas.width = ow;
+            outCanvas.height = oh;
+            const ctx = outCanvas.getContext("2d");
+            const outData = ctx.createImageData(ow, oh);
 
-          for(let y=0; y<ih; y++){
-            for(let x=0; x<iw; x++){
-              const idx = (y*iw + x)*4;
-              const r = imgData.data[idx];
-              const g = imgData.data[idx+1];
-              const b = imgData.data[idx+2];
-              const a = imgData.data[idx+3];
-
-              if(a === 0){
-                // 完全透明は透明のまま拡大
-                for(let sy=0; sy<scale; sy++){
-                  for(let sx=0; sx<scale; sx++){
-                    const ox = x*scale + sx;
-                    const oy = y*scale + sy;
-                    const oidx = (oy*outW + ox)*4;
-                    outImgData.data[oidx+0] = 0;
-                    outImgData.data[oidx+1] = 0;
-                    outImgData.data[oidx+2] = 0;
-                    outImgData.data[oidx+3] = 0;
+            for (let y = 0; y < ih; y++) {
+              for (let x = 0; x < iw; x++) {
+                const i = (y * iw + x) * 4;
+                const r = srcData[i], g = srcData[i+1], b = srcData[i+2], a = srcData[i+3];
+                const nearest = a === 0 ? {r:0,g:0,b:0} : findNearestColor({r,g,b});
+                for (let sy = 0; sy < scale; sy++) {
+                  for (let sx = 0; sx < scale; sx++) {
+                    const ox = x * scale + sx, oy = y * scale + sy;
+                    const o = (oy * ow + ox) * 4;
+                    outData.data[o] = nearest.r;
+                    outData.data[o+1] = nearest.g;
+                    outData.data[o+2] = nearest.b;
+                    outData.data[o+3] = a;
                   }
-                }
-                continue;
-              }
-
-              // 半透明・不透明は透明度は保ちつつ色辞書の色に置換
-              const origColor = {r: r, g: g, b: b};
-              const nearest = findNearestColor(origColor);
-
-              for(let sy=0; sy<scale; sy++){
-                for(let sx=0; sx<scale; sx++){
-                  const ox = x*scale + sx;
-                  const oy = y*scale + sy;
-                  const oidx = (oy*outW + ox)*4;
-                  outImgData.data[oidx+0] = nearest.r;
-                  outImgData.data[oidx+1] = nearest.g;
-                  outImgData.data[oidx+2] = nearest.b;
-                  outImgData.data[oidx+3] = a;
                 }
               }
             }
-          }
 
-          ctx.putImageData(outImgData, 0, 0);
-
-          // 表示用の要素を作る
-          const container = document.createElement("div");
-          container.className = "right-result";
-
-          const title = document.createElement("div");
-          title.textContent = `変換画像: ${file.name} (${outW}x${outH})`;
-          container.appendChild(title);
-
-          container.appendChild(canvas);
-
-          const dlLink = document.createElement("a");
-          dlLink.textContent = "個別で保存";
-          dlLink.href = canvas.toDataURL("image/png");
-          dlLink.download = `converted_${file.name}`;
-          dlLink.style.color = "#66f";
-          dlLink.style.textDecoration = "underline";
-          dlLink.style.cursor = "pointer";
-          dlLink.style.marginTop = "6px";
-          dlLink.style.display = "inline-block";
-          container.appendChild(dlLink);
-
-          rightResults.appendChild(container);
-
-          // canvasをblob化して保存（ZIP用）
-          canvas.toBlob(blob => {
-            convertedImages.push({
-              name: `converted_${file.name}`,
-              blob: blob
-            });
-          }, "image/png");
-        };
-        img.onerror = () => {
-          alert(`"${file.name}"を読み込めませんでした。`);
-        };
-        img.src = URL.createObjectURL(file);
-      });
-    }
-
-    // ZIPダウンロード処理
-    zipButton.addEventListener("click", () => {
-      if(convertedImages.length === 0){
-        alert("変換済みの画像がありません。右側にPNG画像をドロップしてください。");
-        return;
+            ctx.putImageData(outData, 0, 0);
+            outCanvas.toBlob(blob => {
+              zip.file(path, blob);
+              log.textContent += `✔ ${path}\n`;
+              resolve();
+            }, "image/png");
+          };
+          img.onerror = reject;
+          img.src = blobURL;
+        });
       }
-      const zip = new JSZip();
-      convertedImages.forEach(img => {
-        zip.file(img.name, img.blob);
-      });
-      zip.generateAsync({type:"blob"}).then(content => {
+
+      // ZIP出力
+      zip.generateAsync({ type: "blob" }).then(blob => {
         const a = document.createElement("a");
-        a.href = URL.createObjectURL(content);
+        a.href = URL.createObjectURL(blob);
         a.download = "converted_images.zip";
-        document.body.appendChild(a);
         a.click();
-        setTimeout(() => {
-          document.body.removeChild(a);
-          URL.revokeObjectURL(a.href);
-        }, 100);
+        log.textContent += `\n✅ ZIP保存完了`;
       });
     });
 
-    // ドラッグ＆ドロップ設定
-    function setupDragDrop(element, handler){
-      element.addEventListener("dragover", e => {
-        e.preventDefault();
-        element.classList.add("dragover");
-      });
-      element.addEventListener("dragleave", e => {
-        element.classList.remove("dragover");
-      });
-      element.addEventListener("drop", e => {
-        e.preventDefault();
-        element.classList.remove("dragover");
-        handler(e.dataTransfer.files);
-      });
-      // クリックでファイル選択も可能に
-      element.addEventListener("click", () => {
-       
+    zipButton.addEventListener("click", () => folderInput.click());
+  </script>
+</body>
+</html>
