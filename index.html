@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <title>マイクラ用block in block再現ツール</title>
+  <style>
+    body {
+      margin: 0; padding: 0;
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      background-color: #1e1e1e;
+      color: white;
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
+      user-select: none;
+    }
+    .container {
+      flex: 1;
+      border-right: 1px solid #444;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 16px;
+      box-sizing: border-box;
+    }
+    .container:last-child {
+      border-right: none;
+    }
+    h2 {
+      margin: 0 0 8px 0;
+      font-weight: 600;
+    }
+    .settings {
+      font-size: 14px;
+      margin-bottom: 6px;
+    }
+    input[type="number"] {
+      width: 50px;
+      padding: 4px;
+      margin: 0 6px;
+      border-radius: 4px;
+      border: none;
+      text-align: center;
+    }
+    .drop-zone {
+      flex-grow: 1;
+      width: 100%;
+      max-width: 400px;
+      border: 2px dashed #888;
+      border-radius: 12px;
+      background-color: #2c2c2c;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 20px;
+      font-size: 16px;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+    .drop-zone.dragover {
+      background-color: #444;
+    }
+    .image-list {
+      margin-top: 12px;
+      width: 100%;
+      max-width: 400px;
+      max-height: 200px;
+      overflow-y: auto;
+      font-size: 14px;
+      color: #ccc;
+      border: 1px solid #555;
+      border-radius: 6px;
+      padding: 8px;
+      box-sizing: border-box;
+    }
+    canvas {
+      margin-top: 16px;
+      border: 1px solid #666;
+      max-width: 100%;
+      image-rendering: pixelated;
+    }
+    #downloadLink {
+      margin-top: 12px;
+      color: #66f;
+      cursor: pointer;
+      user-select: none;
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <!-- 左側 -->
+  <div class="container">
+    <h2>色辞書用画像をドラッグアンドドロップ</h2>
+    <div class="settings">
+      サイズ制限: 
+      <input id="widthInput" type="number" min="1" value="16" title="幅(ピクセル)">
+      ×
+      <input id="heightInput" type="number" min="1" value="16" title="高さ(ピクセル)">
+    </div>
+    <div id="leftDrop" class="drop-zone">ここにPNG画像をドロップ<br>指定サイズの画像のみ受け付けます</div>
+    <div id="leftList" class="image-list">ここに読み込んだ色辞書画像の平均色一覧が表示されます</div>
+  </div>
+
+  <!-- 右側 -->
+  <div class="container">
+    <h2>反映する画像をドラッグアンドドロップ</h2>
+    <div id="rightDrop" class="drop-zone">ここにPNG画像をドロップ</div>
+    <canvas id="outputCanvas"></canvas>
+    <a id="downloadLink" download="converted.png">画像を保存</a>
+  </div>
+
+  <script>
+    const widthInput = document.getElementById("widthInput");
+    const heightInput = document.getElementById("heightInput");
+    const leftDrop = document.getElementById("leftDrop");
+    const rightDrop = document.getElementById("rightDrop");
+    const leftList = document.getElementById("leftList");
+    const outputCanvas = document.getElementById("outputCanvas");
+    const downloadLink = document.getElementById("downloadLink");
+
+    let colorDict = []; // {r, g, b, label}
+
+    function getAverageColor(img) {
+      const canvas = document.createElement("canvas");
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0);
+      const data = ctx.getImageData(0, 0, img.width, img.height).data;
+      let r = 0, g = 0, b = 0, count = 0;
+      for(let i = 0; i < data.length; i += 4) {
+        if(data[i+3] > 0){
+          r += data[i];
+          g += data[i+1];
+          b += data[i+2];
+          count++;
+        }
+      }
+      if(count === 0) return {r:0,g:0,b:0};
+      return {
+        r: Math.round(r/count),
+        g: Math.round(g/count),
+        b: Math.round(b/count)
+      };
+    }
+
+    function colorDistance(c1, c2){
+      return Math.sqrt(
+        (c1.r - c2.r)**2 +
+        (c1.g - c2.g)**2 +
+        (c1.b - c2.b)**2
+      );
+    }
+
+    function findNearestColor(c) {
+      if(colorDict.length === 0) return c;
+      let nearest = colorDict[0];
+      let minDist = colorDistance(c, nearest);
+      for(let i=1; i<colorDict.length; i++) {
+        let dist = colorDistance(c, colorDict[i]);
+        if(dist < minDist){
+          minDist = dist;
+          nearest = colorDict[i];
+        }
+      }
+      return nearest;
+    }
+
+    function handleLeftDrop(files){
+      const w = parseInt(widthInput.value);
+      const h = parseInt(heightInput.value);
+      [...files].forEach(file => {
+        if(!file.type.endsWith("png")) return;
+        const img = new Image();
+        img.onload = () => {
+          if(img.width !== w || img.height !== h){
+            alert(`ファイル"${file.name}"はサイズが${w}x${h}ではありません。除外します。`);
+            return;
+          }
+          const avg = getAverageColor(img);
+          colorDict.push(avg);
+          const label = `${file.name}: rgb(${avg.r}, ${avg.g}, ${avg.b})`;
+          const div = document.createElement("div");
+          div.textContent = label;
+          leftList.appendChild(div);
+        };
+        img.onerror = () => {
+          alert(`"${file.name}"を読み込めませんでした。`);
+        }
+        img.src = URL.createObjectURL(file);
+      });
+    }
+
+    function handleRightDrop(files){
+      [...files].forEach(file => {
+        if(!file.type.endsWith("png")) return;
+        const img = new Image();
+        img.onload = () => {
+          const scale = parseInt(widthInput.value);
+          const w = img.width;
+          const h = img.height;
+          const outW = w * scale;
+          const outH = h * scale;
+          outputCanvas.width = outW;
+          outputCanvas.height = outH;
+          const ctx = outputCanvas.getContext("2d");
+
+          // 元画像のピクセル取得
+          const tempCanvas = document.createElement("canvas");
+          tempCanvas.width = w;
+          tempCanvas.height = h;
+          const tempCtx = tempCanvas.getContext("2d");
+          tempCtx.drawImage(img, 0, 0);
+          const imgData = tempCtx.getImageData(0,0,w,h);
+
+          const outImgData = ctx.createImageData(outW, outH);
+
+          for(let y=0; y<h; y++){
+            for(let x=0; x<w; x++){
+              const idx = (y*w + x)*4;
+              const r = imgData.data[idx];
+              const g = imgData.data[idx+1];
+              const b = imgData.data[idx+2];
+              const a = imgData.data[idx+3];
+
+              if(a === 0){
+                // 完全透明は透明のまま拡大
+                for(let sy=0; sy<scale; sy++){
+                  for(let sx=0; sx<scale; sx++){
+                    const ox = x*scale + sx;
+                    const oy = y*scale + sy;
+                    const oidx = (oy*outW + ox)*4;
+                    outImgData.data[oidx+0] = 0;
+                    outImgData.data[oidx+1] = 0;
+                    outImgData.data[oidx+2] = 0;
+                    outImgData.data[oidx+3] = 0;
+                  }
+                }
+                continue;
+              }
+
+              // 半透明・不透明は透明度は保ちつつ色辞書の色に置換
+              const origColor = {r: r, g: g, b: b};
+              const nearest = findNearestColor(origColor);
+
+              for(let sy=0; sy<scale; sy++){
+                for(let sx=0; sx<scale; sx++){
+                  const ox = x*scale + sx;
+                  const oy = y*scale + sy;
+                  const oidx = (oy*outW + ox)*4;
+                  outImgData.data[oidx+0] = nearest.r;
+                  outImgData.data[oidx+1] = nearest.g;
+                  outImgData.data[oidx+2] = nearest.b;
+                  outImgData.data[oidx+3] = a;
+                }
+              }
+            }
+          }
+
+          ctx.putImageData(outImgData, 0, 0);
+          downloadLink.href = outputCanvas.toDataURL("image/png");
+        };
+        img.onerror = () => {
+          alert(`"${file.name}"を読み込めませんでした。`);
+        };
+        img.src = URL.createObjectURL(file);
+      });
+    }
+
+    // ドラッグ＆ドロップイベント登録関数
+    function setupDragDrop(element, handler){
+      element.addEventListener("dragover", e => {
+        e.preventDefault();
+        element.classList.add("dragover");
+      });
+      element.addEventListener("dragleave", e => {
+        element.classList.remove("dragover");
+      });
+      element.addEventListener("drop", e => {
+        e.preventDefault();
+        element.classList.remove("dragover");
+        handler(e.dataTransfer.files);
+      });
+      // クリックでファイル選択も可能に
+      element.addEventListener("click", () => {
+        const input = document.createElement("input");
+        input.type = "file";
+        input.multiple = true;
+        input.accept = "image/png";
+        input.onchange = () => {
+          handler(input.files);
+        };
+        input.click();
+      });
+    }
+
+    setupDragDrop(leftDrop, handleLeftDrop);
+    setupDragDrop(rightDrop, handleRightDrop);
+
+  </script>
+</body>
+</html>
