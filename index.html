@@ -2,30 +2,22 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
-  <title>マインクラフト画像変換ツール（フォルダ読み込み対応）</title>
+  <title>マインクラフト画像変換ツール</title>
   <style>
     body {
-      margin: 0; padding: 0;
-      font-family: "Segoe UI", sans-serif;
+      margin: 0;
+      padding: 16px;
+      font-family: sans-serif;
       background-color: #1e1e1e;
       color: white;
-      display: flex;
-      height: 100vh;
     }
-    .container {
-      flex: 1;
-      border-right: 1px solid #444;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 16px;
-      box-sizing: border-box;
+    h2 {
+      margin-top: 32px;
+      margin-bottom: 8px;
     }
-    .container:last-child { border-right: none; }
-    h2 { margin: 0 0 8px; }
     .settings {
       font-size: 14px;
-      margin-bottom: 6px;
+      margin-bottom: 12px;
     }
     input[type="number"] {
       width: 50px;
@@ -37,19 +29,19 @@
     }
     .drop-zone, .folder-select {
       width: 100%;
-      max-width: 400px;
+      max-width: 500px;
       border: 2px dashed #888;
       border-radius: 12px;
       background-color: #2c2c2c;
       padding: 20px;
       text-align: center;
       cursor: pointer;
-      margin-bottom: 12px;
+      margin-bottom: 16px;
       user-select: none;
     }
     .image-list {
       width: 100%;
-      max-width: 400px;
+      max-width: 500px;
       height: 200px;
       overflow-y: auto;
       font-size: 14px;
@@ -71,7 +63,7 @@
     .log {
       font-size: 13px;
       margin-top: 10px;
-      max-width: 400px;
+      max-width: 500px;
       text-align: left;
       white-space: pre-wrap;
       color: #ccc;
@@ -79,28 +71,23 @@
   </style>
 </head>
 <body>
-  <!-- 色辞書側 -->
-  <div class="container">
-    <h2>色辞書用画像をドラッグアンドドロップ</h2>
-    <div class="settings">
-      サイズ制限: 
-      <input id="widthInput" type="number" min="1" value="16">×
-      <input id="heightInput" type="number" min="1" value="16">
-    </div>
-    <div id="leftDrop" class="drop-zone">PNG画像をドロップ（指定サイズ）</div>
-    <div id="leftList" class="image-list">読み込んだ平均色が表示されます</div>
-  </div>
 
-  <!-- 変換対象側 -->
-  <div class="container">
-    <h2>反映する画像フォルダを選択</h2>
-    <label class="folder-select">
-      画像フォルダを選択（PNGのみ・サブフォルダ可）
-      <input type="file" id="folderInput" webkitdirectory multiple style="display:none">
-    </label>
-    <button id="zipButton">ZIPで保存</button>
-    <div class="log" id="log"></div>
+  <h2>色辞書用画像をドラッグアンドドロップ</h2>
+  <div class="settings">
+    サイズ制限: 
+    <input id="widthInput" type="number" min="1" value="16">×
+    <input id="heightInput" type="number" min="1" value="16">
   </div>
+  <div id="leftDrop" class="drop-zone">PNG画像をドロップ（指定サイズ）</div>
+  <div id="leftList" class="image-list">読み込んだ平均色が表示されます</div>
+
+  <h2>反映する画像フォルダを選択</h2>
+  <label class="folder-select">
+    フォルダを選択（PNGのみ・サブフォルダ可）
+    <input type="file" id="folderInput" webkitdirectory multiple style="display:none">
+  </label>
+  <button id="zipButton">ZIPで保存</button>
+  <div class="log" id="log"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <script>
@@ -166,7 +153,7 @@
       }
     });
 
-    // 右側の画像フォルダ読み込み＆変換
+    // フォルダ選択 → 変換 → ZIP保存
     folderInput.addEventListener("change", async () => {
       const files = [...folderInput.files].filter(f => f.name.endsWith(".png"));
       const zip = new JSZip();
@@ -175,7 +162,7 @@
       log.textContent = "変換中...\n";
 
       for (const file of files) {
-        const path = file.webkitRelativePath.replace(/^.*?\//, ""); // フォルダ名以降のみ残す
+        const path = file.webkitRelativePath.replace(/^.*?\//, ""); // ルートフォルダ削除
         const img = new Image();
         const blobURL = URL.createObjectURL(file);
 
