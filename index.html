@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
-  <title>マイクラ用block in block再現ツール</title>
+  <title>マイクラ用画像変換ツール（ZIPダウンロード対応）</title>
   <style>
     body {
       margin: 0; padding: 0;
@@ -57,6 +57,7 @@
       font-size: 16px;
       cursor: pointer;
       transition: background-color 0.2s;
+      user-select:none;
     }
     .drop-zone.dragover {
       background-color: #444;
@@ -73,19 +74,34 @@
       border-radius: 6px;
       padding: 8px;
       box-sizing: border-box;
+      user-select:none;
     }
     canvas {
-      margin-top: 16px;
+      margin-top: 8px;
       border: 1px solid #666;
       max-width: 100%;
       image-rendering: pixelated;
+      user-select:none;
     }
-    #downloadLink {
+    #downloadLink, #zipButton {
       margin-top: 12px;
       color: #66f;
       cursor: pointer;
       user-select: none;
       text-decoration: underline;
+      display: inline-block;
+    }
+    #zipButton {
+      margin-left: 16px;
+    }
+    .right-result {
+      margin-top: 8px;
+      border: 1px solid #555;
+      padding: 6px;
+      border-radius: 6px;
+      background-color: #222;
+      width: 400px;
+      user-select:none;
     }
   </style>
 </head>
@@ -105,22 +121,25 @@
 
   <!-- 右側 -->
   <div class="container">
-    <h2>反映する画像をドラッグアンドドロップ</h2>
+    <h2>反映する画像をドラッグアンドドロップ（複数可）</h2>
     <div id="rightDrop" class="drop-zone">ここにPNG画像をドロップ</div>
-    <canvas id="outputCanvas"></canvas>
-    <a id="downloadLink" download="converted.png">画像を保存</a>
+    <div id="rightResults"></div>
+    <button id="zipButton" title="すべての変換画像をZIPで一括ダウンロード">まとめてZIPダウンロード</button>
   </div>
 
+  <!-- JSZip CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <script>
     const widthInput = document.getElementById("widthInput");
     const heightInput = document.getElementById("heightInput");
     const leftDrop = document.getElementById("leftDrop");
     const rightDrop = document.getElementById("rightDrop");
     const leftList = document.getElementById("leftList");
-    const outputCanvas = document.getElementById("outputCanvas");
-    const downloadLink = document.getElementById("downloadLink");
+    const rightResults = document.getElementById("rightResults");
+    const zipButton = document.getElementById("zipButton");
 
     let colorDict = []; // {r, g, b, label}
+    let convertedImages = []; // {name, blob}
 
     function getAverageColor(img) {
       const canvas = document.createElement("canvas");
@@ -193,33 +212,39 @@
       });
     }
 
+    // 右側画像を変換してキャンバス表示しblobも保存
     function handleRightDrop(files){
+      const w = parseInt(widthInput.value);
+      const h = parseInt(heightInput.value);
       [...files].forEach(file => {
         if(!file.type.endsWith("png")) return;
         const img = new Image();
         img.onload = () => {
-          const scale = parseInt(widthInput.value);
-          const w = img.width;
-          const h = img.height;
-          const outW = w * scale;
-          const outH = h * scale;
-          outputCanvas.width = outW;
-          outputCanvas.height = outH;
-          const ctx = outputCanvas.getContext("2d");
+          const scale = w;
+          const iw = img.width;
+          const ih = img.height;
+          const outW = iw * scale;
+          const outH = ih * scale;
+
+          // 変換用キャンバスを作成
+          const canvas = document.createElement("canvas");
+          canvas.width = outW;
+          canvas.height = outH;
+          const ctx = canvas.getContext("2d");
 
           // 元画像のピクセル取得
           const tempCanvas = document.createElement("canvas");
-          tempCanvas.width = w;
-          tempCanvas.height = h;
+          tempCanvas.width = iw;
+          tempCanvas.height = ih;
           const tempCtx = tempCanvas.getContext("2d");
           tempCtx.drawImage(img, 0, 0);
-          const imgData = tempCtx.getImageData(0,0,w,h);
+          const imgData = tempCtx.getImageData(0, 0, iw, ih);
 
           const outImgData = ctx.createImageData(outW, outH);
 
-          for(let y=0; y<h; y++){
-            for(let x=0; x<w; x++){
-              const idx = (y*w + x)*4;
+          for(let y=0; y<ih; y++){
+            for(let x=0; x<iw; x++){
+              const idx = (y*iw + x)*4;
               const r = imgData.data[idx];
               const g = imgData.data[idx+1];
               const b = imgData.data[idx+2];
@@ -260,7 +285,37 @@
           }
 
           ctx.putImageData(outImgData, 0, 0);
-          downloadLink.href = outputCanvas.toDataURL("image/png");
+
+          // 表示用の要素を作る
+          const container = document.createElement("div");
+          container.className = "right-result";
+
+          const title = document.createElement("div");
+          title.textContent = `変換画像: ${file.name} (${outW}x${outH})`;
+          container.appendChild(title);
+
+          container.appendChild(canvas);
+
+          const dlLink = document.createElement("a");
+          dlLink.textContent = "個別で保存";
+          dlLink.href = canvas.toDataURL("image/png");
+          dlLink.download = `converted_${file.name}`;
+          dlLink.style.color = "#66f";
+          dlLink.style.textDecoration = "underline";
+          dlLink.style.cursor = "pointer";
+          dlLink.style.marginTop = "6px";
+          dlLink.style.display = "inline-block";
+          container.appendChild(dlLink);
+
+          rightResults.appendChild(container);
+
+          // canvasをblob化して保存（ZIP用）
+          canvas.toBlob(blob => {
+            convertedImages.push({
+              name: `converted_${file.name}`,
+              blob: blob
+            });
+          }, "image/png");
         };
         img.onerror = () => {
           alert(`"${file.name}"を読み込めませんでした。`);
@@ -269,7 +324,30 @@
       });
     }
 
-    // ドラッグ＆ドロップイベント登録関数
+    // ZIPダウンロード処理
+    zipButton.addEventListener("click", () => {
+      if(convertedImages.length === 0){
+        alert("変換済みの画像がありません。右側にPNG画像をドロップしてください。");
+        return;
+      }
+      const zip = new JSZip();
+      convertedImages.forEach(img => {
+        zip.file(img.name, img.blob);
+      });
+      zip.generateAsync({type:"blob"}).then(content => {
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(content);
+        a.download = "converted_images.zip";
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+          document.body.removeChild(a);
+          URL.revokeObjectURL(a.href);
+        }, 100);
+      });
+    });
+
+    // ドラッグ＆ドロップ設定
     function setupDragDrop(element, handler){
       element.addEventListener("dragover", e => {
         e.preventDefault();
@@ -285,20 +363,4 @@
       });
       // クリックでファイル選択も可能に
       element.addEventListener("click", () => {
-        const input = document.createElement("input");
-        input.type = "file";
-        input.multiple = true;
-        input.accept = "image/png";
-        input.onchange = () => {
-          handler(input.files);
-        };
-        input.click();
-      });
-    }
-
-    setupDragDrop(leftDrop, handleLeftDrop);
-    setupDragDrop(rightDrop, handleRightDrop);
-
-  </script>
-</body>
-</html>
+       
